@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "project": "QA Signup Selenium Tool",
+  "overview": "Build a Python tool for authorized QA signup-flow automation on staging/dev using Selenium, with JSON reports and failure screenshots.",
+  "goals": [
+    "Automate happy-path and negative signup scenarios in authorized environments.",
+    "Generate machine-readable JSON execution reports.",
+    "Capture screenshots for failed steps and include paths in reports.",
+    "Provide a CLI-friendly runner for local and CI execution."
+  ],
+  "nonGoals": [
+    "Running against production systems.",
+    "Bypassing anti-bot systems or account abuse automation.",
+    "Parallel browser orchestration in MVP."
+  ],
+  "constraints": [
+    "Python + Selenium WebDriver.",
+    "Config via environment variables.",
+    "Execution limited to authorized staging/dev targets."
+  ],
+  "assumptions": [
+    "The target signup page and selectors are controlled by the QA team.",
+    "A browser and matching driver are available in runtime environments."
+  ],
+  "acceptanceCriteria": [
+    "At least one happy-path scenario runs through CLI.",
+    "A JSON report is written on every run.",
+    "Failure screenshots are produced when possible and referenced by report entries.",
+    "Exit code is non-zero when at least one scenario fails."
+  ],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Generate PRD and project guardrails",
+      "description": "As a maintainer, I want a clear PRD and build plan so implementation follows explicit QA-focused goals.",
+      "status": "done",
+      "dependsOn": [],
+      "acceptanceCriteria": [
+        "A RALPH PRD document exists and covers goals, constraints, and acceptance criteria.",
+        "A build plan exists and explains setup, config, and execution flow.",
+        "Documentation explicitly restricts usage to authorized environments."
+      ],
+      "startedAt": "2026-03-06T08:57:21.533715+00:00",
+      "completedAt": "2026-03-06T08:58:04.375290+00:00",
+      "updatedAt": "2026-03-06T08:58:04.375259+00:00"
+    },
+    {
+      "id": "US-002",
+      "title": "Implement Selenium runner scaffold",
+      "description": "As a QA engineer, I want a Python Selenium scaffold using page objects and config so scenarios are maintainable.",
+      "status": "done",
+      "dependsOn": [
+        "US-001"
+      ],
+      "acceptanceCriteria": [
+        "A Python package exists under src with configuration, driver factory, page objects, and runner.",
+        "Runner attempts a signup scenario and writes structured JSON report output.",
+        "On scenario failure, report captures error message and optional screenshot path."
+      ],
+      "startedAt": "2026-03-06T09:00:55.706256+00:00",
+      "completedAt": "2026-03-06T09:01:20.455145+00:00",
+      "updatedAt": "2026-03-06T09:01:20.455123+00:00"
+    },
+    {
+      "id": "US-003",
+      "title": "Add baseline test coverage",
+      "description": "As a developer, I want baseline unit tests to validate config parsing and report serialization.",
+      "status": "open",
+      "dependsOn": [
+        "US-002"
+      ],
+      "acceptanceCriteria": [
+        "Tests validate boolean env parsing behavior.",
+        "Tests validate report write format and essential keys.",
+        "Test suite runs with pytest and exits success in CI-compatible mode."
+      ]
+    }
+  ]
+}

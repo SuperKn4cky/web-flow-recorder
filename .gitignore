@@ -1,1 +1,11 @@
 .ralph/.tmp/
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+artifacts/
+.pytest_cache/
+.ralph/
