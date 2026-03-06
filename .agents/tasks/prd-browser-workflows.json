@@ -1,0 +1,603 @@
+{
+  "version": 1,
+  "project": "Visible Chromium Workflow Recorder",
+  "overview": "Build a Dockerized, single-user web application that records and replays web navigation workflows inside a real, visible Chromium browser. The product must capture browser actions and runtime artifacts such as cookies and clipboard history, then produce a structured JSON result with strong debug visibility when a run fails.",
+  "goals": [
+    "Record realistic browser workflows in a visible Chromium session, including navigation, tab lifecycle, clicks, text input, shortcuts, selection, clipboard, and scroll actions.",
+    "Replay recorded workflows on demand in the same visible Chromium session with normal, slow, and step-through modes.",
+    "Capture cookies and clipboard artifacts during runs and turn them into a structured output JSON with configurable filtering and templating.",
+    "Provide step-level debug visibility with statuses, failure reason, timeline, screenshots, and browser context so failures are actionable.",
+    "Run as a self-contained Dockerized web app with an architecture that can grow toward DOM extraction, network traces, conditions, loops, and multi-workflow orchestration."
+  ],
+  "nonGoals": [
+    "Multi-user accounts, RBAC, or team collaboration in MVP.",
+    "Support for browsers other than Chromium in MVP.",
+    "Parallel workflow runs or parallel browser sessions in MVP.",
+    "Network HAR capture, full tracing, or advanced traffic interception in MVP.",
+    "Conditions, loops, branching logic, or cross-workflow orchestration in MVP.",
+    "Native desktop packaging outside Docker.",
+    "Guaranteed drag-and-drop recording in MVP if reliability is poor; the data model should remain extensible for V2."
+  ],
+  "successMetrics": [
+    "A workflow with 20 or fewer steps can be recorded and replayed in the same environment with at least 90% success after selector stabilization.",
+    "A failed run exposes the failing step, selector, URL, tab/frame context, and technical reason within 30 seconds of opening the run viewer.",
+    "A user can export the final structured JSON result in one click after a successful run.",
+    "A fresh environment can reach a visible Chromium session from `docker compose up` in under 10 minutes following project documentation.",
+    "Scheduled runs show last run, next run, and success or failure history without requiring direct database access."
+  ],
+  "openQuestions": [
+    "Should drag-and-drop recording be part of MVP if Playwright support proves stable, or explicitly deferred to V2?",
+    "Is the visible browser surface acceptable as an embedded noVNC session inside the web UI, or is a host-native Chromium window required later?",
+    "Should secrets for masked cookies be encrypted with a user-supplied key, or is a local app-managed key acceptable for single-user MVP?",
+    "Do we need to support clipboard entries beyond plain text in MVP, such as HTML fragments or images, or is MIME metadata enough initially?",
+    "How much cross-origin iframe interaction is expected in target workflows, given highlighting and selector recovery limitations?"
+  ],
+  "assumptions": [
+    "This is a new project starting from an empty repository.",
+    "The product is single-user and local or self-hosted, so MVP does not require authentication.",
+    "A visible Chromium browser inside Docker will be exposed through an embedded browser viewer backed by Xvfb and noVNC.",
+    "Playwright is the browser automation layer for recording metadata and replay execution.",
+    "SQLite is sufficient for MVP persistence and fits the single-user deployment model."
+  ],
+  "constraints": [
+    "The application must run in Docker.",
+    "Chromium must remain visibly accessible during recording and replay.",
+    "The MVP must preserve an extensible architecture for V2 additions such as DOM extraction, network traces, conditions, loops, and multi-workflow support."
+  ],
+  "personas": [
+    {
+      "name": "Operator",
+      "description": "A single technical user who records, replays, debugs, and schedules browser workflows to extract structured outputs from websites."
+    }
+  ],
+  "stack": {
+    "framework": "React 19 + Vite 7 frontend, Express 5 backend, TypeScript throughout, npm workspaces",
+    "hosting": "Single Docker container running Node 22, Chromium, Xvfb, and noVNC",
+    "database": "SQLite via Prisma",
+    "auth": "None in MVP; single local operator session",
+    "automation": "Playwright controlling a persistent Chromium context",
+    "realtime": "WebSocket channel for browser session state, recorder events, and live run timeline updates"
+  },
+  "routes": [
+    {
+      "path": "/",
+      "name": "Dashboard",
+      "purpose": "List workflows, show browser session state, and summarize recent and scheduled runs."
+    },
+    {
+      "path": "/workflows/new",
+      "name": "New Workflow",
+      "purpose": "Create a workflow with metadata, start URL, cookie presets, and output rules."
+    },
+    {
+      "path": "/workflows/:workflowId",
+      "name": "Workflow Detail",
+      "purpose": "Inspect recorded steps, edit workflow configuration, and manage schedule, cookies, and output mapping."
+    },
+    {
+      "path": "/workflows/:workflowId/record",
+      "name": "Recorder",
+      "purpose": "Start a visible Chromium session and capture user actions into workflow steps."
+    },
+    {
+      "path": "/workflows/:workflowId/replay",
+      "name": "Replay",
+      "purpose": "Execute a workflow in the visible Chromium browser with speed controls and recovery actions."
+    },
+    {
+      "path": "/runs/:runId",
+      "name": "Run Viewer",
+      "purpose": "Inspect timeline, failure diagnostics, cookies, clipboard artifacts, and structured output for a specific run."
+    },
+    {
+      "path": "/settings",
+      "name": "Settings",
+      "purpose": "Show environment, secret-handling, browser, and storage configuration relevant to the single-user instance."
+    }
+  ],
+  "uiNotes": [
+    "Recorder and Replay routes use a split layout with the visible browser taking at least 60% of horizontal space and an inspector panel for steps and controls.",
+    "The app shell includes workflow navigation, browser session badge, last run status, and clear empty/loading/error states on every route.",
+    "Run Viewer presents a chronological timeline with color-coded statuses, sticky diagnostics pane, and artifact tabs for cookies, clipboard, console logs, and DOM snapshots.",
+    "Replay controls must make mode obvious: normal, slow, paused, and step-through should have distinct states and disabled rules.",
+    "Sensitive cookie values are always redacted in UI, exports, and logs.",
+    "Destructive actions such as deleting a workflow or clearing stored cookies require explicit confirmation."
+  ],
+  "dataModel": [
+    {
+      "entity": "Workflow",
+      "fields": [
+        "id",
+        "name",
+        "description",
+        "startUrl",
+        "recordingStatus",
+        "replaySettingsJson",
+        "outputTemplateJson",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    {
+      "entity": "WorkflowStep",
+      "fields": [
+        "id",
+        "workflowId",
+        "orderIndex",
+        "actionType",
+        "selectorStrategy",
+        "selectorValue",
+        "payloadJson",
+        "tabRef",
+        "frameRef",
+        "timingMs",
+        "assertionJson",
+        "createdAt"
+      ]
+    },
+    {
+      "entity": "WorkflowRun",
+      "fields": [
+        "id",
+        "workflowId",
+        "mode",
+        "status",
+        "startedAt",
+        "endedAt",
+        "failedStepId",
+        "resultJson",
+        "errorCode",
+        "errorMessage"
+      ]
+    },
+    {
+      "entity": "RunStepLog",
+      "fields": [
+        "id",
+        "runId",
+        "workflowStepId",
+        "status",
+        "attempt",
+        "startedAt",
+        "endedAt",
+        "selectorUsed",
+        "url",
+        "tabRef",
+        "frameRef",
+        "screenshotPath",
+        "htmlSnapshotPath",
+        "consoleLogJson",
+        "errorCode",
+        "errorMessage"
+      ]
+    },
+    {
+      "entity": "CookieArtifact",
+      "fields": [
+        "id",
+        "workflowId",
+        "runId",
+        "name",
+        "domain",
+        "path",
+        "valueEncrypted",
+        "masked",
+        "secure",
+        "httpOnly",
+        "sourceStepId",
+        "updatedAt"
+      ]
+    },
+    {
+      "entity": "ClipboardEntry",
+      "fields": [
+        "id",
+        "runId",
+        "workflowStepId",
+        "sequence",
+        "mimeType",
+        "textValue",
+        "sourceAction",
+        "capturedAt"
+      ]
+    },
+    {
+      "entity": "Schedule",
+      "fields": [
+        "id",
+        "workflowId",
+        "type",
+        "cronExpr",
+        "intervalSeconds",
+        "enabled",
+        "lastRunAt",
+        "nextRunAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  ],
+  "importFormat": {
+    "description": "Workflow definitions should be importable and exportable as JSON so a recorded workflow can be persisted, inspected, and replayed deterministically.",
+    "example": {
+      "name": "Copy order reference",
+      "startUrl": "https://example.com/login",
+      "cookies": [
+        {
+          "name": "session_id",
+          "value": "{{secret.SESSION_ID}}",
+          "domain": ".example.com",
+          "path": "/",
+          "masked": true
+        }
+      ],
+      "outputTemplate": {
+        "orderReference": "{{clipboard.last}}",
+        "allClipboardValues": "{{clipboard}}"
+      },
+      "steps": [
+        {
+          "id": "step-001",
+          "type": "navigate",
+          "url": "https://example.com/login",
+          "tabRef": "tab-1"
+        },
+        {
+          "id": "step-002",
+          "type": "input",
+          "selector": "label:has-text(\"Email\") >> input",
+          "value": "operator@example.com",
+          "tabRef": "tab-1"
+        },
+        {
+          "id": "step-003",
+          "type": "copy",
+          "selector": "[data-order-ref]",
+          "tabRef": "tab-1"
+        }
+      ]
+    }
+  },
+  "rules": [
+    "MVP supports exactly one active Chromium session and one active workflow run at a time.",
+    "Selectors should prefer stable attributes first: data-testid, accessible role or label, semantic text, then CSS fallback.",
+    "If an action triggers navigation, replay must wait for navigation completion before advancing to the next step unless the step explicitly opts out.",
+    "Masked cookie values are never rendered in plaintext in UI, logs, screenshots metadata, or exported JSON.",
+    "Clipboard retention and mapping rules are evaluated in captured order and produce a final JSON object by default.",
+    "When a run fails, screenshot capture is mandatory; HTML snapshots and console diagnostics are required unless browser-level errors make them unavailable.",
+    "If a scheduled run fires while another run is active, the new run is skipped and logged rather than queued in MVP.",
+    "All timestamps should be stored in UTC ISO 8601 format.",
+    "The workflow schema must remain forward-compatible with future action types such as drag-and-drop, conditions, loops, and network events."
+  ],
+  "qualityGates": [
+    "npm run lint",
+    "npm run typecheck",
+    "npm run test",
+    "npm run build"
+  ],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Scaffold the workspace and Docker-first tooling",
+      "status": "open",
+      "dependsOn": [],
+      "description": "As a developer, I want a new TypeScript workspace with frontend, backend, and Docker entrypoints so the product can be built incrementally without guesswork.",
+      "acceptanceCriteria": [
+        "Create an npm workspace with `apps/web`, `apps/server`, and `packages/shared`, plus root scripts `npm run dev`, `npm run build`, `npm run lint`, `npm run typecheck`, and `npm run test`.",
+        "Document explicit initial install commands in the repo setup, including `npm install react react-dom express zod` and `npm install -D typescript vite vitest eslint @types/node @types/react @types/react-dom concurrently`.",
+        "Add a Dockerfile and `compose.yml` that boot the app stack with placeholder Chromium system dependencies and a health endpoint contract for later browser stories.",
+        "Example: `npm run dev` brings up a visible web shell and `/api/health` returns HTTP 200 with JSON `{ \"status\": \"ok\" }`.",
+        "Negative case: when optional env files are missing, the app boots with sane single-user defaults and surfaces a clear configuration warning instead of crashing."
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Add SQLite persistence and domain schema",
+      "status": "open",
+      "dependsOn": [
+        "US-001"
+      ],
+      "description": "As a developer, I want a durable schema for workflows, runs, cookies, clipboard entries, and schedules so the app state survives restarts and supports debugging.",
+      "acceptanceCriteria": [
+        "Install persistence packages with explicit commands `npm install @prisma/client better-sqlite3` and `npm install -D prisma`.",
+        "Create a Prisma schema and initial migration for Workflow, WorkflowStep, WorkflowRun, RunStepLog, CookieArtifact, ClipboardEntry, and Schedule with enums for action types and run statuses.",
+        "Provide server-side repository methods for CRUD and list queries required by the dashboard, workflow detail pages, and run viewer.",
+        "Example: creating a workflow named `Invoice capture` stores a workflow row and can be fetched again after a process restart.",
+        "Negative case: an invalid step action type or orphaned child record is rejected by validation and does not reach the database."
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Create the app shell and route skeleton",
+      "status": "open",
+      "dependsOn": [
+        "US-001"
+      ],
+      "description": "As the operator, I want a stable web shell with clear routes and empty states so I can navigate the product before deeper features are implemented.",
+      "acceptanceCriteria": [
+        "Implement routes `/`, `/workflows/new`, `/workflows/:workflowId`, `/workflows/:workflowId/record`, `/workflows/:workflowId/replay`, `/runs/:runId`, and `/settings`.",
+        "Build a single-user layout with top bar, left navigation, page title, route-level loading states, empty states, and route-level error handling.",
+        "Include reusable UI primitives for workflow cards, run status badges, browser session badge, and a split-pane container that later recorder and replay screens can reuse.",
+        "Example: visiting `/` with no workflows shows an empty-state CTA to create the first workflow.",
+        "Negative case: visiting `/workflows/unknown` renders a not-found state with a recovery link instead of a blank page or uncaught error."
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Launch and display a headful Chromium session",
+      "status": "open",
+      "dependsOn": [
+        "US-001",
+        "US-003"
+      ],
+      "description": "As the operator, I want a real, visible Chromium browser in the app so I can record and replay workflows against the actual rendered site.",
+      "acceptanceCriteria": [
+        "Install browser runtime packages with explicit commands `npm install playwright ws @novnc/novnc`.",
+        "Launch a single persistent Chromium context in headful mode inside the container using Xvfb and noVNC, and expose it through a visible embedded viewer on the Recorder and Replay routes.",
+        "Provide session lifecycle APIs or WebSocket events for start, stop, status, current URL, active tab count, and busy or idle state.",
+        "Example: starting a browser session from `/workflows/:workflowId/record` opens a visible Chromium window showing `about:blank` inside the viewer container.",
+        "Negative case: a second start request while a session is already active returns a `busy` state and leaves the existing session untouched."
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "Create workflow CRUD and configuration editing",
+      "status": "open",
+      "dependsOn": [
+        "US-002",
+        "US-003"
+      ],
+      "description": "As the operator, I want to create and edit workflows with configuration metadata so recording and replay have a durable place to live.",
+      "acceptanceCriteria": [
+        "Add create, edit, and delete actions for workflow metadata including name, description, start URL, cookie presets, output template summary, and schedule summary.",
+        "Hydrate `/workflows/:workflowId` from SQLite and save edits through the backend instead of transient browser-only state.",
+        "Render sections for metadata, recorder status, replay settings, cookies, clipboard output rules, and schedule overview even when some sections are initially empty.",
+        "Example: saving a workflow named `Copy tracking number` with start URL `https://example.com/login` persists and remains visible after page refresh.",
+        "Negative case: blank names, invalid URLs, or duplicate workflow names surface inline validation errors and do not persist partial records."
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "Record navigation and tab lifecycle steps",
+      "status": "open",
+      "dependsOn": [
+        "US-004",
+        "US-005"
+      ],
+      "description": "As the operator, I want navigation and tab actions captured automatically so multi-page and multi-tab workflows can be replayed faithfully.",
+      "acceptanceCriteria": [
+        "Recorder captures `navigate`, `goBack`, `goForward`, `reload`, `openTab`, `closeTab`, and `switchTab` steps with URL, tab reference, timestamps, and wait metadata when relevant.",
+        "Persist recorded steps in order for the active workflow and reflect them live in the step list UI during an active recording session.",
+        "Use stable tab references so replay can correlate multi-tab actions even when tab indices change between runs.",
+        "Example: opening a new tab, visiting `https://news.ycombinator.com`, then closing it produces three ordered steps tied to the same tab reference.",
+        "Negative case: transient extension or devtools targets are ignored and logged as unsupported instead of polluting the workflow definition."
+      ]
+    },
+    {
+      "id": "US-007",
+      "title": "Record pointer, field, and scroll interactions",
+      "status": "open",
+      "dependsOn": [
+        "US-004",
+        "US-005",
+        "US-006"
+      ],
+      "description": "As the operator, I want meaningful on-page interactions recorded so replay can reproduce user behavior beyond simple navigation.",
+      "acceptanceCriteria": [
+        "Recorder captures click, double-click, optional context-menu trigger, focus, blur, change, input, and scroll actions with selector, coordinates when needed, and field metadata where safe.",
+        "Generate selectors using a preference order of `data-testid`, accessible role or label, semantic text, then CSS fallback, and store the selector strategy used.",
+        "Debounce noisy DOM events so common text entry does not create redundant change steps.",
+        "Example: clicking a submit button and typing into an email field creates focused, replayable steps without manual cleanup.",
+        "Negative case: hidden, disabled, or detached elements encountered during capture are skipped with a warning instead of recording unusable selectors."
+      ]
+    },
+    {
+      "id": "US-008",
+      "title": "Record keyboard shortcuts, selection, and clipboard actions",
+      "status": "open",
+      "dependsOn": [
+        "US-004",
+        "US-005",
+        "US-007"
+      ],
+      "description": "As the operator, I want keyboard and clipboard behavior captured so workflows can reproduce shortcuts, copy-paste, and text-selection based extraction.",
+      "acceptanceCriteria": [
+        "Recorder captures key presses, hotkeys, copy, cut, paste, and text selection events with normalized key data, modifier flags, selection context, and clipboard linkage.",
+        "Persist clipboard-related events into a durable structure that later replay and output-mapping stories can reuse.",
+        "Show recorder-side indicators for the last shortcut captured and the current clipboard entry count during a recording session.",
+        "Example: `Control+C` on selected text followed by `Control+V` into another field records selection, copy, and paste steps in sequence.",
+        "Negative case: unsupported OS-level shortcuts outside the Chromium viewer are ignored and reported as out-of-scope rather than recorded inaccurately."
+      ]
+    },
+    {
+      "id": "US-009",
+      "title": "Render and export the serialized workflow definition",
+      "status": "open",
+      "dependsOn": [
+        "US-006",
+        "US-007",
+        "US-008"
+      ],
+      "description": "As the operator, I want to inspect and export recorded workflow data so I can validate what will later be replayed.",
+      "acceptanceCriteria": [
+        "Render the ordered step list on `/workflows/:workflowId` with inspector panels for selector, payload, tab or frame context, timing, and optional assertions.",
+        "Add a raw JSON export or download action for the workflow definition using the persisted schema that replay will consume.",
+        "Support reordering and deleting steps in the editor without corrupting stable step IDs or tab references.",
+        "Example: selecting a recorded click step shows its selector strategy, target URL, and timing data in the inspector.",
+        "Negative case: if a stored step type is unknown to the current UI, render it as `unsupported` with safe fallback details instead of crashing the editor."
+      ]
+    },
+    {
+      "id": "US-010",
+      "title": "Replay workflows in visible Chromium with speed controls",
+      "status": "open",
+      "dependsOn": [
+        "US-004",
+        "US-005",
+        "US-009"
+      ],
+      "description": "As the operator, I want to replay a recorded workflow inside the visible Chromium browser so I can verify or reuse an automation path interactively.",
+      "acceptanceCriteria": [
+        "Implement on-demand replay from a workflow definition in the visible Chromium session with run modes `normal`, `slow`, and `step`.",
+        "Persist a WorkflowRun record with status, start and end timestamps, mode, and final result placeholder, and stream live step status updates to the UI.",
+        "Make `/workflows/:workflowId/replay` show play controls, pause or step button states, active step highlighting, and current browser URL.",
+        "Example: replaying a workflow with navigate, click, and input steps runs them in order and marks the run `success` when the last step completes.",
+        "Negative case: starting replay without an available browser session or with an empty workflow is blocked with a clear validation message before any run record is created."
+      ]
+    },
+    {
+      "id": "US-011",
+      "title": "Add waits, retries, and failure recovery entry points",
+      "status": "open",
+      "dependsOn": [
+        "US-010"
+      ],
+      "description": "As the operator, I want replay timing controls and restart options so I can stabilize flaky workflows and recover after failures.",
+      "acceptanceCriteria": [
+        "Support per-step wait strategies for selector presence, selector visibility, navigation completion, and fixed delay, plus configurable retry count and timeout defaults.",
+        "When a replay step fails, store the failure reason, attempt count, and failed step ID, then allow relaunching from the beginning or from the failed step.",
+        "Expose retry settings and recovery actions in `/workflows/:workflowId/replay` and `/runs/:runId` without requiring manual database edits.",
+        "Example: a step waiting for a delayed button succeeds on the second retry and the run continues automatically.",
+        "Negative case: when retries are exhausted because a selector never appears, the run stops, subsequent steps are marked `SKIP`, and the failure is clearly attributed to the missing selector."
+      ]
+    },
+    {
+      "id": "US-012",
+      "title": "Capture, pre-inject, and mask cookies",
+      "status": "open",
+      "dependsOn": [
+        "US-002",
+        "US-005",
+        "US-010"
+      ],
+      "description": "As the operator, I want cookie handling built into workflows so authenticated or stateful sessions can be reproduced safely.",
+      "acceptanceCriteria": [
+        "Persist cookies observed during recording or replay with domain, path, expiry, secure and httpOnly flags, source step, and last updated timestamp.",
+        "Allow workflow configuration to define cookies for pre-injection before a run starts, including masked or secret values that are never echoed back in cleartext UI.",
+        "Apply injected cookies before the first navigation and refresh stored cookie artifacts when values change during a run.",
+        "Example: a workflow configured with a masked `session_id` cookie reaches an authenticated page on its first navigation.",
+        "Negative case: masked cookie values are hidden in tables, logs, exports, and debug payloads, showing only a redacted placeholder."
+      ]
+    },
+    {
+      "id": "US-013",
+      "title": "Persist clipboard history and expose it in the run viewer",
+      "status": "open",
+      "dependsOn": [
+        "US-002",
+        "US-008",
+        "US-010"
+      ],
+      "description": "As the operator, I want every clipboard value used during a run stored and viewable so it can drive output mapping and debugging.",
+      "acceptanceCriteria": [
+        "Store every clipboard entry created or pasted during a run with sequence, MIME type, source action, source step, and captured timestamp.",
+        "Surface clipboard history in `/runs/:runId` and `/workflows/:workflowId` with filters for step, source action, and plain-text search.",
+        "Associate clipboard entries with workflow steps so later output templating can reference `clipboard[index]`, `clipboard.last`, and step-based lookups.",
+        "Example: a run that copies three order references displays all three entries in order with links back to the originating steps.",
+        "Negative case: when no clipboard event occurs during a run, the viewer shows an explicit empty state and the run still completes successfully."
+      ]
+    },
+    {
+      "id": "US-014",
+      "title": "Generate structured JSON results and export actions",
+      "status": "open",
+      "dependsOn": [
+        "US-010",
+        "US-013"
+      ],
+      "description": "As the operator, I want filtered clipboard data turned into structured JSON so workflow runs produce a usable output artifact.",
+      "acceptanceCriteria": [
+        "Implement workflow-level clipboard retention rules for keep or ignore by regex, MIME type, source, and step, then map the kept entries into a final JSON result using simple templates.",
+        "Support template tokens `{{clipboard[0]}}`, `{{clipboard.last}}`, and `{{step(<workflow-step-id>).clipboard}}` or an equivalent stable step reference, with validation before run start.",
+        "Make `/runs/:runId` provide actions to copy the final JSON to the clipboard and download it as a file.",
+        "Example: a workflow that copies an order ID and email can export `{ \"orderId\": \"...\", \"email\": \"...\" }` from the configured template.",
+        "Negative case: invalid template references or invalid regex syntax prevent the run from starting and show which token or rule is invalid."
+      ]
+    },
+    {
+      "id": "US-015",
+      "title": "Schedule workflows and show run history",
+      "status": "open",
+      "dependsOn": [
+        "US-005",
+        "US-010"
+      ],
+      "description": "As the operator, I want workflows to run on a schedule and keep a visible history so repetitive automations do not require manual launching.",
+      "acceptanceCriteria": [
+        "Install scheduling support with the explicit command `npm install node-cron`.",
+        "Allow each workflow to run on a cron expression or fixed interval, store enabled or disabled state, and calculate `lastRunAt` and `nextRunAt`.",
+        "Show latest run status, last run time, next scheduled run, and paginated run history on the dashboard and workflow detail page.",
+        "Example: a workflow configured to run every 60 minutes shows the computed next run time immediately after being enabled.",
+        "Negative case: if a scheduled trigger fires while the workflow already has an active run, the new execution is skipped with status `skipped_busy` and a visible audit entry."
+      ]
+    },
+    {
+      "id": "US-016",
+      "title": "Deliver the run timeline and automatic failure screenshots",
+      "status": "open",
+      "dependsOn": [
+        "US-010",
+        "US-012",
+        "US-013"
+      ],
+      "description": "As the operator, I want a run viewer with per-step status and screenshot evidence so failures are immediately understandable.",
+      "acceptanceCriteria": [
+        "Make `/runs/:runId` display a chronological step timeline with statuses `OK`, `FAIL`, and `SKIP`, plus attempted action, selector used, URL, frame, tab, timestamps, and elapsed time.",
+        "Capture a screenshot automatically when a step fails and attach it to the failed step details.",
+        "Show current cookies and clipboard artifacts in side panels while reviewing a run.",
+        "Example: a failed click step shows the exact selector used, the page URL, and a screenshot taken at the moment of failure.",
+        "Negative case: if screenshot capture itself fails, the run viewer shows a clear `screenshot unavailable` note without hiding the original automation error."
+      ]
+    },
+    {
+      "id": "US-017",
+      "title": "Add HTML snapshots and browser console diagnostics",
+      "status": "open",
+      "dependsOn": [
+        "US-016"
+      ],
+      "description": "As the operator, I want deeper diagnostics around a failed step so I can understand why a selector or page state diverged.",
+      "acceptanceCriteria": [
+        "On step failure, persist a targeted DOM or HTML snapshot and browser console messages or errors alongside the screenshot and technical failure code.",
+        "Display failure reason categories such as `timeout`, `selector_not_found`, and `navigation_interrupted`, with raw diagnostic payloads accessible from an expandable panel.",
+        "Time-order console logs and tag them by level so users can correlate them with step timestamps.",
+        "Example: a missing-selector failure includes the rendered HTML around the lookup target and the console error that explains why page script execution broke.",
+        "Negative case: if DOM snapshot generation is blocked by a browser exception, the failure record still saves the original error and marks the snapshot field as unavailable instead of replacing the root cause."
+      ]
+    },
+    {
+      "id": "US-018",
+      "title": "Support step-through debug, target highlighting, and resume",
+      "status": "open",
+      "dependsOn": [
+        "US-011",
+        "US-017"
+      ],
+      "description": "As the operator, I want to debug a run interactively in the visible browser so I can inspect step-by-step behavior and recover faster.",
+      "acceptanceCriteria": [
+        "Provide step-through execution controls that pause before each step, continue one step at a time, and resume normal playback from the current position.",
+        "When possible, highlight the target element in the visible browser before executing the active step and show the resolved selector in the debug panel.",
+        "Allow relaunching a run from the failed step using the last known cookies or session state when still valid, otherwise fall back to restart-from-beginning with an explanation.",
+        "Example: in `step` mode, the operator advances through two steps manually, sees the third target highlighted, and resumes automatic playback afterward.",
+        "Negative case: if highlighting is impossible because the target frame is cross-origin or detached, the UI explains that highlight is unavailable but still allows debug execution."
+      ]
+    },
+    {
+      "id": "US-019",
+      "title": "Add smoke coverage and operator documentation",
+      "status": "open",
+      "dependsOn": [
+        "US-015",
+        "US-018"
+      ],
+      "description": "As the maintainer, I want smoke coverage and operational documentation so the MVP is runnable, testable, and understandable from a fresh checkout.",
+      "acceptanceCriteria": [
+        "Add automated smoke tests that cover workflow CRUD, visible browser session startup, record-to-replay happy path, cookie injection, clipboard result generation, and failure diagnostics at a minimal level.",
+        "Document local development, Docker execution, browser prerequisites, storage locations, and known MVP limitations in project docs and AGENTS operational notes.",
+        "Provide a sample workflow fixture that demonstrates multi-step navigation, clipboard capture, and JSON export for manual verification.",
+        "Example: a fresh clone can follow the documented steps to launch the stack with Docker and replay the sample workflow end-to-end.",
+        "Negative case: if Chromium binaries or display services are missing, the healthcheck and docs point to the exact failing prerequisite instead of failing silently."
+      ]
+    }
+  ]
+}
