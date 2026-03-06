@@ -156,10 +156,11 @@ run_agent_inline() {
   local cmd="${PRD_AGENT_CMD:-$AGENT_CMD}"
   if [[ "$cmd" == *"{prompt}"* ]]; then
     cmd="${cmd//\{prompt\}/'$escaped'}"
+    eval "$cmd"
   else
-    cmd="$cmd '$escaped'"
+    # Commands without a {prompt} placeholder are expected to read from stdin.
+    printf "%s" "$prompt_content" | eval "$cmd"
   fi
-  eval "$cmd"
 }
 
 MODE="build"

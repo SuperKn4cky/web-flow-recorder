@@ -13,9 +13,9 @@
 # CONTEXT_REF=".agents/ralph/references/CONTEXT_ENGINEERING.md"
 # ACTIVITY_CMD=".agents/ralph/log-activity.sh"
 # AGENT_CMD defaults are defined in agents.sh. Override here if needed.
-# AGENT_CMD="codex exec --yolo --skip-git-repo-check -"
+# AGENT_CMD="codex exec --full-auto --skip-git-repo-check -"
 # PRD_AGENT_CMD defaults are defined in agents.sh (interactive).
-# PRD_AGENT_CMD="codex --yolo --skip-git-repo-check {prompt}"
+# PRD_AGENT_CMD="codex exec --full-auto --skip-git-repo-check -"
 # AGENT_CMD="claude -p --dangerously-skip-permissions \"\$(cat {prompt})\""
 # AGENT_CMD="droid exec --skip-permissions-unsafe -f {prompt}"
 # AGENTS_PATH="AGENTS.md"
@@ -23,7 +23,3 @@
 # NO_COMMIT=false
 # MAX_ITERATIONS=25
 # STALE_SECONDS=0
-
-# Codex v0.111 compatibility: newer CLI expects wire_api="responses".
-AGENT_CMD='codex exec --yolo --skip-git-repo-check -c model_providers.experimental_ws.wire_api="responses" -'
-PRD_AGENT_CMD='codex --yolo -c model_providers.experimental_ws.wire_api="responses" {prompt}'

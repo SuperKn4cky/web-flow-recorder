@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Default agent command templates (used by loop.sh and CLI).
 
-AGENT_CODEX_CMD="codex exec --yolo --skip-git-repo-check -"
-AGENT_CODEX_INTERACTIVE_CMD="codex --yolo {prompt}"
+# Codex CLI >= 0.111 removed `--yolo`; use exec mode with `--full-auto`.
+AGENT_CODEX_CMD="codex exec --full-auto --skip-git-repo-check -"
+AGENT_CODEX_INTERACTIVE_CMD="codex exec --full-auto --skip-git-repo-check -"
 AGENT_CLAUDE_CMD="claude -p --dangerously-skip-permissions \"\$(cat {prompt})\""
 AGENT_CLAUDE_INTERACTIVE_CMD="claude --dangerously-skip-permissions {prompt}"
 AGENT_DROID_CMD="droid exec --skip-permissions-unsafe -f {prompt}"
